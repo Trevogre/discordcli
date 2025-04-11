@@ -5,11 +5,9 @@ import sqlite3
 import requests
 import sys
 import signal
-from dotenv import load_dotenv
 
 CONFIG_PATH = os.path.expanduser("~/.dissconfig")
 DB_PATH = os.path.expanduser("~/.disscli_history.db")
-ENV_PATH = os.path.join(os.getcwd(), ".env")  # Path to .env file in current directory
 
 # Ignore SIGPIPE and handle BrokenPipeError gracefully
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
@@ -132,16 +130,6 @@ def get_default_hook():
     row = cursor.fetchone()
     conn.close()
     return row[0] if row else None
-
-
-def get_webhook_from_env():
-    """Read webhook URL from .env file if it exists"""
-    if os.path.exists(ENV_PATH):
-        load_dotenv(ENV_PATH)
-        webhook_url = os.getenv("WEBHOOK_URL")
-        if webhook_url:
-            return webhook_url.strip('"')  # Remove quotes if present
-    return None
 
 
 def get_hook_url(name):
@@ -343,14 +331,9 @@ def main():
         webhook_url = get_hook_url(get_default_hook())
 
         if not webhook_url:
-            webhook_url = get_webhook_from_env()
-            if webhook_url:
-                print("Using webhook URL from .env file")
-            else:
-                print("Error: No webhook configured. Either:")
-                print("  1. Use 'addhook' to add one and 'hook' to set it as default, or")
-                print("  2. Add WEBHOOK_URL to your .env file")
-                return
+            print("Error: No webhook configured. Either:")
+            print("  1. Use 'addhook' to add one and 'hook' to set it as default.")
+            return
 
         username = config.get("username", "DissBot")
         avatar_url = config.get("avatar_url")
