@@ -44,29 +44,35 @@ git commit -m "docs: update docs"      # for documentation
 
 ## Releasing a New Version
 
-We have an automated release script that handles most of the release process. To release a new version:
+We have a fully automated release script that handles the entire release process. To release a new version:
 
-1. Ensure all changes are committed and pushed
+1. Prerequisites:
+   - Install GitHub CLI: `brew install gh`
+   - Authenticate with GitHub: `gh auth login`
+   - Ensure all changes are committed and pushed
+   - Ensure your working directory is clean
 
 2. Run the release script with the type of version bump you want (major, minor, or patch):
 ```bash
-./scripts/release.py patch  # for a patch version bump (0.1.0 -> 0.1.1)
-./scripts/release.py minor  # for a minor version bump (0.1.0 -> 0.2.0)
-./scripts/release.py major  # for a major version bump (0.1.0 -> 1.0.0)
+python scripts/release.py patch  # for a patch version bump (0.1.0 -> 0.1.1)
+python scripts/release.py minor  # for a minor version bump (0.1.0 -> 0.2.0)
+python scripts/release.py major  # for a major version bump (0.1.0 -> 1.0.0)
 ```
 
-The script will:
+The script will automatically:
 - Bump the version in setup.py
 - Create and push a git tag
-- Update the Homebrew formula with the new version and hash
+- Create a GitHub release with notes from commit messages
+- Update the Homebrew formula with:
+  - New version and hash for the main package
+  - Latest versions and hashes for all PyPI dependencies
 - Push changes to both repositories
 
-3. After the script completes, follow the link it provides to:
-   - Create a GitHub release
-   - Add release notes
-   - Publish the release
-
-That's it! The new version will be available via both pip and Homebrew.
+No manual steps are required! The new version will be immediately available via Homebrew:
+```bash
+brew update
+brew upgrade trevogre/tap/disscli
+```
 
 ## Commit Message Guidelines
 

@@ -9,9 +9,20 @@ A command-line interface (CLI) tool for sending messages to Discord group channe
 ## Installation
 
 ### Using Homebrew (Recommended)
+First, add the custom tap:
 ```bash
 brew tap Trevogre/tap
-brew install disscli
+```
+
+Then install the package:
+```bash
+brew install trevogre/tap/disscli
+```
+
+To update to the latest version:
+```bash
+brew update
+brew upgrade trevogre/tap/disscli
 ```
 
 ### Using pip
@@ -85,7 +96,7 @@ The tool uses a SQLite database located at `~/.disscli_history.db` to store webh
 1. **Command not found**: If you installed via Homebrew and get "command not found", try:
    ```bash
    brew doctor
-   brew link disscli
+   brew link trevogre/tap/disscli
    ```
 
 2. **Permission denied**: Make sure you have write permissions in your home directory for the database and config files.
