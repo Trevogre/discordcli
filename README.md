@@ -22,6 +22,7 @@ pip install disscli
 ## Features
 - Add, manage, and delete Discord webhooks
 - Send messages to Discord channels via webhooks
+- Broadcast messages to multiple webhooks simultaneously
 - Maintain a history of sent messages with ability to clear history
 - List users mentioned in messages
 - Command aliases for frequently used commands
@@ -35,6 +36,13 @@ Run the CLI tool using the `diss` command. Below are some examples of available 
 diss "Your message here"
 ```
 
+### Broadcast Messages
+```bash
+diss broadcast "Your message"  # Send to all registered webhooks
+diss b "Your message"         # Short form of broadcast command
+echo "message" | diss         # Pipe a message to all webhooks
+```
+
 ### Webhook Management
 ```bash
 diss addhook "<webhook_url>" "<n>"    # Add a new webhook
@@ -42,6 +50,9 @@ diss deletehook "<n>" (or dh)         # Delete a webhook
 diss listhooks (or lh)                   # List all webhooks
 diss hook "<n>"                       # Set default webhook
 diss whathook (or wh)                    # Show current webhook
+diss webhook add <url>        # Add a new webhook
+diss webhook remove <url>     # Remove a webhook
+diss webhook list            # List all webhooks
 ```
 
 ### Message History

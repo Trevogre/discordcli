@@ -21,7 +21,8 @@ COMMAND_ALIASES = {
     "su": "setuser",
     "who": "whoami",
     "dh": "deletehook",
-    "dl": "deletelogs"
+    "dl": "deletelogs",
+    "b": "broadcast"
 }
 
 def load_config():
@@ -39,44 +40,57 @@ def save_config(config):
 
 def init_db():
     # Create the database file and parent directory if they don't exist
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    if not os.path.exists(DB_PATH):
+    db_dir = os.path.dirname(DB_PATH)
+    db_existed = os.path.exists(DB_PATH)
+    
+    if not os.path.exists(db_dir):
+        os.makedirs(db_dir)
+        
+    if not db_existed:
         open(DB_PATH, 'a').close()
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        # Create tables if they don't exist
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                message TEXT NOT NULL,
-                mentions TEXT
-            )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS hooks (
-                name TEXT PRIMARY KEY,
-                webhook_url TEXT NOT NULL,
-                is_default INTEGER DEFAULT 0
-            )
-            """
-        )
-        # Verify tables exist
+        # Check if tables exist first
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = [table[0] for table in cursor.fetchall()]
-        if 'messages' in tables and 'hooks' in tables:
+        existing_tables = {table[0] for table in cursor.fetchall()}
+        tables_created = False
+        
+        # Create tables if they don't exist
+        if 'messages' not in existing_tables:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    message TEXT NOT NULL,
+                    mentions TEXT
+                )
+                """
+            )
+            tables_created = True
+            
+        if 'hooks' not in existing_tables:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hooks (
+                    name TEXT PRIMARY KEY,
+                    webhook_url TEXT NOT NULL,
+                    is_default INTEGER DEFAULT 0
+                )
+                """
+            )
+            tables_created = True
+        
+        # Only print message if we actually created something
+        if not db_existed or tables_created:
             print("Database initialized successfully.")
-        else:
-            print("Error: Database initialization failed.")
 
 
 def print_help_message():
     print("Error: No message provided or invalid command.")
     print("\nAvailable commands:")
     print("  diss \"<message>\" - Send a message to Discord.")
+    print("  diss broadcast \"<message>\" (b) - Send message to all webhooks.")
     print("  diss list (ls) - List previously sent messages.")
     print("  diss addhook \"<webhook>\" \"<name>\" - Add a new webhook.")
     print("  diss deletehook <name> (dh) - Delete an existing webhook.")
@@ -143,11 +157,11 @@ def delete_hook(name):
 def list_hooks():
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT name, is_default FROM hooks")
+        cursor.execute("SELECT name, webhook_url, is_default FROM hooks")
         rows = cursor.fetchall()
-        for name, is_default in rows:
+        for name, url, is_default in rows:
             default_flag = " (default)" if is_default else ""
-            print(f"{name}{default_flag}")
+            print(f"{name}{default_flag}: {url}")
 
 
 def set_default_hook(name):
@@ -216,18 +230,26 @@ def delete_logs():
 
 
 def send_message(webhook_url, username, avatar_url, message):
-    mentions = [word for word in message.split() if word.startswith("@")]
+    if not message or not str(message).strip():
+        print("Error: Cannot send empty message")
+        return False
+        
+    mentions = [word for word in str(message).split() if word.startswith("@")]
     payload = {
-        "content": message,
-        "username": username,
-        "avatar_url": avatar_url,
+        "content": str(message).strip()
     }
+    if username:
+        payload["username"] = username
+    if avatar_url:
+        payload["avatar_url"] = avatar_url
+
     response = requests.post(webhook_url, json=payload)
     if response.status_code == 204:
         save_message(message, mentions)
-        print("Message sent successfully!")
+        return True
     else:
         print(f"Failed to send message: {response.status_code} {response.text}")
+        return False
 
 
 def set_user(username):
@@ -280,6 +302,33 @@ def import_config(file_path):
         print(f"Error importing configuration: {e}")
 
 
+def broadcast_message(message, username=None):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT webhook_url FROM hooks")
+        webhooks = cursor.fetchall()
+        
+        if not webhooks:
+            print("No webhooks registered. Add webhooks first.")
+            return
+        
+        success_count = 0
+        for (webhook_url,) in webhooks:
+            try:
+                if webhook_url is None:
+                    print(f"Warning: Found a hook with no URL")
+                    continue
+                if send_message(webhook_url, username, None, message):
+                    success_count += 1
+            except Exception as e:
+                print(f"Failed to send to webhook URL '{webhook_url}': {e}")
+        
+        if success_count > 0:
+            print(f"Message broadcast to {success_count}/{len(webhooks)} webhooks successfully!")
+        else:
+            print("Failed to broadcast message to any webhooks.")
+
+
 def main():
     # Initialize database first
     init_db()
@@ -288,7 +337,7 @@ def main():
     import sys
 
     # Define known subcommands
-    known_subcommands = ["addhook", "listhooks", "hook", "whathook", "users", "list", "setuser", "whoami", "exportconfig", "importconfig", "deletehook", "deletelogs"]
+    known_subcommands = ["addhook", "listhooks", "hook", "whathook", "users", "list", "setuser", "whoami", "exportconfig", "importconfig", "deletehook", "deletelogs", "broadcast"]
     
     # First, check if the first argument is an alias and replace it
     if len(sys.argv) > 1 and sys.argv[1] in COMMAND_ALIASES:
@@ -345,8 +394,15 @@ def main():
         importconfig_parser.add_argument("file_path", nargs="?", default=os.path.expanduser("~/dissconfig.json"),
                                        help="The file path to import the configuration from (defaults to ~/dissconfig.json)")
 
+        # Subcommand for broadcast
+        broadcast_parser = subparsers.add_parser("broadcast", aliases=["b"], help="Send message to all webhooks")
+        broadcast_parser.add_argument("message", help="The message to broadcast to all webhooks")
+
         args = parser.parse_args()
-        args.message = None
+        
+        # Only set message to None if we're not using a subcommand that needs it
+        if not args.command or args.command not in ["broadcast", "b"]:
+            args.message = None
     else:
         # If no subcommand is provided, treat all arguments as a potential message
         parser = argparse.ArgumentParser(description="Send messages to Discord via webhooks.")
@@ -430,6 +486,12 @@ def main():
 
     if args.command == "deletelogs":
         delete_logs()
+        return
+
+    if args.command == "broadcast":
+        config = load_config()
+        username = config.get("username")
+        broadcast_message(args.message, username)
         return
 
     if args.message:
