@@ -44,46 +44,29 @@ git commit -m "docs: update docs"      # for documentation
 
 ## Releasing a New Version
 
-1. Update version number in `setup.py`
+We have an automated release script that handles most of the release process. To release a new version:
 
-2. Create and push a new tag:
+1. Ensure all changes are committed and pushed
+
+2. Run the release script with the type of version bump you want (major, minor, or patch):
 ```bash
-git tag -a v0.1.1 -m "Release version 0.1.1"
-git push origin v0.1.1
+./scripts/release.py patch  # for a patch version bump (0.1.0 -> 0.1.1)
+./scripts/release.py minor  # for a minor version bump (0.1.0 -> 0.2.0)
+./scripts/release.py major  # for a major version bump (0.1.0 -> 1.0.0)
 ```
 
-3. Create a GitHub release:
-   - Go to https://github.com/Trevogre/discordcli/releases
-   - Click "Draft a new release"
-   - Choose the tag you just created
+The script will:
+- Bump the version in setup.py
+- Create and push a git tag
+- Update the Homebrew formula with the new version and hash
+- Push changes to both repositories
+
+3. After the script completes, follow the link it provides to:
+   - Create a GitHub release
    - Add release notes
    - Publish the release
 
-4. Update the Homebrew tap:
-   ```bash
-   # Clone the tap repository if you haven't already
-   git clone https://github.com/Trevogre/homebrew-tap.git
-   cd homebrew-tap
-
-   # Get the SHA256 hash of the new release
-   curl -L https://github.com/Trevogre/discordcli/archive/refs/tags/v0.1.1.tar.gz | shasum -a 256
-
-   # Update the formula version and hash in Formula/disscli.rb
-   # Change both the url and sha256 lines to match the new version
-   ```
-
-5. Test the updated formula:
-   ```bash
-   brew uninstall disscli        # Remove old version
-   brew install --build-from-source ./Formula/disscli.rb
-   ```
-
-6. If everything works, commit and push the tap changes:
-   ```bash
-   git add Formula/disscli.rb
-   git commit -m "feat: update disscli to version 0.1.1"
-   git push origin main
-   ```
+That's it! The new version will be available via both pip and Homebrew.
 
 ## Commit Message Guidelines
 
