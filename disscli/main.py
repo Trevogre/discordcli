@@ -272,8 +272,6 @@ def handle_piped_input():
             # Read piped input
             piped_message = sys.stdin.read().strip()
             if piped_message:
-                # Print the original output to stdout
-                print(piped_message)
                 # Return formatted as code block
                 return f"```\n{piped_message}\n```"
     except (IOError, BrokenPipeError):
@@ -332,6 +330,9 @@ def broadcast_message(message, username=None):
 def main():
     # Initialize database first
     init_db()
+    
+    # Check for piped input first
+    piped_message = handle_piped_input()
     
     # First check if we're dealing with a subcommand or a message
     import sys
@@ -396,9 +397,13 @@ def main():
 
         # Subcommand for broadcast
         broadcast_parser = subparsers.add_parser("broadcast", aliases=["b"], help="Send message to all webhooks")
-        broadcast_parser.add_argument("message", help="The message to broadcast to all webhooks")
+        broadcast_parser.add_argument("message", nargs="?", help="The message to broadcast to all webhooks")
 
         args = parser.parse_args()
+        
+        # Handle piped input for broadcast command
+        if args.command in ["broadcast", "b"] and not args.message and piped_message:
+            args.message = piped_message
         
         # Only set message to None if we're not using a subcommand that needs it
         if not args.command or args.command not in ["broadcast", "b"]:
@@ -410,8 +415,6 @@ def main():
         
         try:
             args = parser.parse_args()
-            # Check for piped input first
-            piped_message = handle_piped_input()
             if piped_message:
                 args.message = piped_message
             elif args.message:
