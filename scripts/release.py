@@ -8,6 +8,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+def get_github_token():
+    """Get GitHub token from gh CLI."""
+    result = subprocess.run("gh auth token", shell=True, text=True, capture_output=True)
+    if result.returncode != 0:
+        print("Error: Could not get GitHub token. Please run 'gh auth login' first.")
+        sys.exit(1)
+    return result.stdout.strip()
+
 def run_command(command, cwd=None):
     """Run a command and return its output."""
     # If this is a git command that needs authentication, use the GitHub token
