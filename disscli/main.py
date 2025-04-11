@@ -6,14 +6,26 @@ import requests
 import sys
 import signal
 
-CONFIG_PATH = os.path.expanduser("~/.dissconfig")
-DB_PATH = os.path.expanduser("~/.disscli_history.db")
+# Allow overriding paths for testing
+CONFIG_PATH = os.getenv('DISSCLI_CONFIG_PATH', os.path.expanduser("~/.dissconfig"))
+DB_PATH = os.getenv('DISSCLI_DB_PATH', os.path.expanduser("~/.disscli_history.db"))
 
 # Ignore SIGPIPE and handle BrokenPipeError gracefully
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
+# Add these constants at the top level after the existing constants
+COMMAND_ALIASES = {
+    "ls": "list",
+    "lh": "listhooks",
+    "wh": "whathook",
+    "su": "setuser",
+    "who": "whoami",
+    "dh": "deletehook",
+    "dl": "deletelogs"
+}
 
 def load_config():
+    # Don't expand the path - use the exact CONFIG_PATH value
     if not os.path.exists(CONFIG_PATH):
         return {}
     with open(CONFIG_PATH, "r") as f:
@@ -26,25 +38,14 @@ def save_config(config):
 
 
 def init_db():
-    print("Initializing database...", flush=True)
-    
-    # Create the database file if it doesn't exist
+    # Create the database file and parent directory if they don't exist
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     if not os.path.exists(DB_PATH):
-        print("Database file doesn't exist. Creating it...", flush=True)
-        # Create the parent directory if it doesn't exist
-        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-        # Create an empty file
         open(DB_PATH, 'a').close()
-    
-    # Check if the database is empty
-    if os.path.getsize(DB_PATH) == 0:
-        print("Database file exists but is empty. Initializing tables...", flush=True)
-    else:
-        print("Database file exists. Checking tables...", flush=True)
 
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    try:
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        # Create tables if they don't exist
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS messages (
@@ -54,7 +55,6 @@ def init_db():
             )
             """
         )
-        print("'messages' table checked/created.", flush=True)
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS hooks (
@@ -64,159 +64,155 @@ def init_db():
             )
             """
         )
-        print("'hooks' table checked/created.", flush=True)
-        conn.commit()
-        print("Database initialized successfully.", flush=True)
-    except sqlite3.Error as e:
-        print(f"Error initializing database: {e}", flush=True)
-    finally:
-        conn.close()
+        # Verify tables exist
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [table[0] for table in cursor.fetchall()]
+        if 'messages' in tables and 'hooks' in tables:
+            print("Database initialized successfully.")
+        else:
+            print("Error: Database initialization failed.")
 
-    # Verify tables exist
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    tables = cursor.fetchall()
-    print(f"Existing tables: {tables}", flush=True)
-    conn.close()
+
+def print_help_message():
+    print("Error: No message provided or invalid command.")
+    print("\nAvailable commands:")
+    print("  diss \"<message>\" - Send a message to Discord.")
+    print("  diss list (ls) - List previously sent messages.")
+    print("  diss addhook \"<webhook>\" \"<name>\" - Add a new webhook.")
+    print("  diss deletehook <name> (dh) - Delete an existing webhook.")
+    print("  diss deletelogs (dl) - Delete all message logs.")
+    print("  diss listhooks (lh) - List all hooks.")
+    print("  diss hook <name> - Set the current hook.")
+    print("  diss whathook (wh) - Show the current hook name.")
+    print("  diss users - List users that have been messaged.")
+    print("  diss setuser <username> (su) - Set a custom username.")
+    print("  diss whoami (who) - Show the current username.")
+    print("  diss exportconfig [file_path] - Export configuration to the specified file (defaults to ~/dissconfig.json).")
+    print("  diss importconfig [file_path] - Import configuration from the specified file (defaults to ~/dissconfig.json).")
+
+
+def get_db_connection():
+    return sqlite3.connect(DB_PATH)
 
 
 def add_hook(name, webhook_url):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM hooks WHERE name = ?", (name,))
-    if cursor.fetchone():
-        print(f"Error: A hook with the name '{name}' already exists.")
-        conn.close()
-        return
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM hooks WHERE name = ?", (name,))
+        if cursor.fetchone():
+            print(f"Error: A hook with the name '{name}' already exists.")
+            return
 
-    cursor.execute("INSERT INTO hooks (name, webhook_url) VALUES (?, ?)", (name, webhook_url))
-    conn.commit()
-    conn.close()
-    print(f"Hook '{name}' added successfully.")
+        # Check if this is the first hook
+        cursor.execute("SELECT COUNT(*) FROM hooks")
+        is_first_hook = cursor.fetchone()[0] == 0
+
+        # Add the hook
+        cursor.execute("INSERT INTO hooks (name, webhook_url, is_default) VALUES (?, ?, ?)", 
+                      (name, webhook_url, 1 if is_first_hook else 0))
+        print(f"Hook '{name}' added successfully.")
+        if is_first_hook:
+            print(f"Hook '{name}' set as default since it's the only hook.")
 
 
 def delete_hook(name):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    # Check if hook exists
-    cursor.execute("SELECT is_default FROM hooks WHERE name = ?", (name,))
-    result = cursor.fetchone()
-    
-    if not result:
-        print(f"Error: No hook found with the name '{name}'.")
-        conn.close()
-        return
-    
-    # If this is the default hook, we need to handle that
-    is_default = result[0]
-    
-    cursor.execute("DELETE FROM hooks WHERE name = ?", (name,))
-    conn.commit()
-    
-    # If we deleted the default hook, try to set a new default
-    if is_default:
-        cursor.execute("SELECT name FROM hooks LIMIT 1")
-        new_default = cursor.fetchone()
-        if new_default:
-            cursor.execute("UPDATE hooks SET is_default = 1 WHERE name = ?", (new_default[0],))
-            conn.commit()
-            print(f"Deleted default hook '{name}'. New default hook set to '{new_default[0]}'.")
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT is_default FROM hooks WHERE name = ?", (name,))
+        result = cursor.fetchone()
+        
+        if not result:
+            print(f"Error: No hook found with the name '{name}'.")
+            return
+        
+        is_default = result[0]
+        cursor.execute("DELETE FROM hooks WHERE name = ?", (name,))
+        
+        if is_default:
+            cursor.execute("SELECT name FROM hooks LIMIT 1")
+            new_default = cursor.fetchone()
+            if new_default:
+                cursor.execute("UPDATE hooks SET is_default = 1 WHERE name = ?", (new_default[0],))
+                print(f"Deleted default hook '{name}'. New default hook set to '{new_default[0]}'.")
+            else:
+                print(f"Deleted default hook '{name}'. No other hooks available to set as default.")
         else:
-            print(f"Deleted default hook '{name}'. No other hooks available to set as default.")
-    else:
-        print(f"Hook '{name}' deleted successfully.")
-    
-    conn.close()
+            print(f"Hook '{name}' deleted successfully.")
 
 
 def list_hooks():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT name, is_default FROM hooks")
-    rows = cursor.fetchall()
-    conn.close()
-    for name, is_default in rows:
-        default_flag = " (default)" if is_default else ""
-        print(f"{name}{default_flag}")
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, is_default FROM hooks")
+        rows = cursor.fetchall()
+        for name, is_default in rows:
+            default_flag = " (default)" if is_default else ""
+            print(f"{name}{default_flag}")
 
 
 def set_default_hook(name):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM hooks WHERE name = ?", (name,))
-    if not cursor.fetchone():
-        print(f"Error: No hook found with the name '{name}'.")
-        conn.close()
-        return
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM hooks WHERE name = ?", (name,))
+        if not cursor.fetchone():
+            print(f"Error: No hook found with the name '{name}'.")
+            return
 
-    cursor.execute("UPDATE hooks SET is_default = 0")
-    cursor.execute("UPDATE hooks SET is_default = 1 WHERE name = ?", (name,))
-    conn.commit()
-    conn.close()
-    print(f"Hook '{name}' is now the default.")
+        cursor.execute("UPDATE hooks SET is_default = 0")
+        cursor.execute("UPDATE hooks SET is_default = 1 WHERE name = ?", (name,))
+        print(f"Hook '{name}' is now the default.")
 
 
 def get_default_hook():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM hooks WHERE is_default = 1")
-    row = cursor.fetchone()
-    conn.close()
-    return row[0] if row else None
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM hooks WHERE is_default = 1")
+        row = cursor.fetchone()
+        return row[0] if row else None
 
 
 def get_hook_url(name):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT webhook_url FROM hooks WHERE name = ?", (name,))
-    row = cursor.fetchone()
-    conn.close()
-    return row[0] if row else None
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT webhook_url FROM hooks WHERE name = ?", (name,))
+        row = cursor.fetchone()
+        return row[0] if row else None
 
 
 def list_users():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT mentions FROM messages WHERE mentions IS NOT NULL")
-    rows = cursor.fetchall()
-    conn.close()
-    users = set()
-    for row in rows:
-        users.update(row[0].split(","))
-    for user in users:
-        print(user)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT mentions FROM messages WHERE mentions IS NOT NULL")
+        rows = cursor.fetchall()
+        users = set()
+        for row in rows:
+            users.update(row[0].split(","))
+        for user in users:
+            print(user)
 
 
 def save_message(message, mentions):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO messages (message, mentions) VALUES (?, ?)",
-        (message, ",".join(mentions) if mentions else None),
-    )
-    conn.commit()
-    conn.close()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO messages (message, mentions) VALUES (?, ?)",
+            (message, ",".join(mentions) if mentions else None),
+        )
 
 
 def list_messages():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT message, mentions FROM messages")
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT message, mentions FROM messages")
+        return cursor.fetchall()
 
 
 def delete_logs():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM messages")
-    deleted_count = cursor.rowcount
-    conn.commit()
-    conn.close()
-    print(f"Successfully deleted {deleted_count} message logs.")
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM messages")
+        deleted_count = cursor.rowcount
+        print(f"Successfully deleted {deleted_count} message logs.")
 
 
 def send_message(webhook_url, username, avatar_url, message):
@@ -285,26 +281,18 @@ def import_config(file_path):
 
 
 def main():
+    # Initialize database first
+    init_db()
+    
     # First check if we're dealing with a subcommand or a message
     import sys
 
     # Define known subcommands
     known_subcommands = ["addhook", "listhooks", "hook", "whathook", "users", "list", "setuser", "whoami", "exportconfig", "importconfig", "deletehook", "deletelogs"]
     
-    # Define aliases for subcommands
-    command_aliases = {
-        "ls": "list",
-        "lh": "listhooks",
-        "wh": "whathook",
-        "su": "setuser",
-        "who": "whoami",
-        "dh": "deletehook",
-        "dl": "deletelogs"
-    }
-    
     # First, check if the first argument is an alias and replace it
-    if len(sys.argv) > 1 and sys.argv[1] in command_aliases:
-        sys.argv[1] = command_aliases[sys.argv[1]]
+    if len(sys.argv) > 1 and sys.argv[1] in COMMAND_ALIASES:
+        sys.argv[1] = COMMAND_ALIASES[sys.argv[1]]
     
     # Now check if we're dealing with a subcommand or a message
     if len(sys.argv) > 1 and sys.argv[1] in known_subcommands:
@@ -374,21 +362,7 @@ def main():
                 args.message = " ".join(args.message)
             else:
                 args.message = None
-                print("Error: No message provided or invalid command.")
-                print("\nAvailable commands:")
-                print("  diss \"<message>\" - Send a message to Discord.")
-                print("  diss list (ls) - List previously sent messages.")
-                print("  diss addhook \"<webhook>\" \"<name>\" - Add a new webhook.")
-                print("  diss deletehook <name> (dh) - Delete an existing webhook.")
-                print("  diss deletelogs (dl) - Delete all message logs.")
-                print("  diss listhooks (lh) - List all hooks.")
-                print("  diss hook <name> - Set the current hook.")
-                print("  diss whathook (wh) - Show the current hook name.")
-                print("  diss users - List users that have been messaged.")
-                print("  diss setuser <username> (su) - Set a custom username.")
-                print("  diss whoami (who) - Show the current username.")
-                print("  diss exportconfig [file_path] - Export configuration to the specified file (defaults to ~/dissconfig.json).")
-                print("  diss importconfig [file_path] - Import configuration from the specified file (defaults to ~/dissconfig.json).")
+                print_help_message()
                 return
             args.command = None
         except SystemExit:
@@ -474,43 +448,14 @@ def main():
         return
 
     if args.message is None:
-        print("Error: No message provided or invalid command.")
-        print("\nAvailable commands:")
-        print("  diss \"<message>\" - Send a message to Discord.")
-        print("  diss list (ls) - List previously sent messages.")
-        print("  diss addhook \"<webhook>\" \"<name>\" - Add a new webhook.")
-        print("  diss deletehook <name> (dh) - Delete an existing webhook.")
-        print("  diss deletelogs (dl) - Delete all message logs.")
-        print("  diss listhooks (lh) - List all hooks.")
-        print("  diss hook <name> - Set the current hook.")
-        print("  diss whathook (wh) - Show the current hook name.")
-        print("  diss users - List users that have been messaged.")
-        print("  diss setuser <username> (su) - Set a custom username.")
-        print("  diss whoami (who) - Show the current username.")
-        print("  diss exportconfig [file_path] - Export configuration to the specified file (defaults to ~/dissconfig.json).")
-        print("  diss importconfig [file_path] - Import configuration from the specified file (defaults to ~/dissconfig.json).")
+        print_help_message()
         return
 
-    print("Error: No message provided or invalid command.")
-    print("\nAvailable commands:")
-    print("  diss \"<message>\" - Send a message to Discord.")
-    print("  diss list (ls) - List previously sent messages.")
-    print("  diss addhook \"<webhook>\" \"<name>\" - Add a new webhook.")
-    print("  diss deletehook <name> (dh) - Delete an existing webhook.")
-    print("  diss deletelogs (dl) - Delete all message logs.")
-    print("  diss listhooks (lh) - List all hooks.")
-    print("  diss hook <name> - Set the current hook.")
-    print("  diss whathook (wh) - Show the current hook name.")
-    print("  diss users - List users that have been messaged.")
-    print("  diss setuser <username> (su) - Set a custom username.")
-    print("  diss whoami (who) - Show the current username.")
-    print("  diss exportconfig [file_path] - Export configuration to the specified file (defaults to ~/dissconfig.json).")
-    print("  diss importconfig [file_path] - Import configuration from the specified file (defaults to ~/dissconfig.json).")
+    print_help_message()
     return
 
 
 if __name__ == "__main__":
-    init_db()
     try:
         main()
     except BrokenPipeError:

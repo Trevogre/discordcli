@@ -25,9 +25,15 @@ htmlcov/
 .tox/
 .nox/
 .coverage
+.coverage.*
+coverage.xml
 *.cover
 *.py,cover
 .hypothesis/
+.pytest_cache/
+pytest.xml
+test-output/
+test-reports/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -35,9 +41,16 @@ htmlcov/
 # Environments
 .env
 .venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 
 # Database
 *.db
+*.sqlite
+*.sqlite3
 
 # macOS
 .DS_Store
