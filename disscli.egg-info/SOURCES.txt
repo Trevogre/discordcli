@@ -1,0 +1,10 @@
+README.md
+setup.py
+disscli/__init__.py
+disscli/main.py
+disscli.egg-info/PKG-INFO
+disscli.egg-info/SOURCES.txt
+disscli.egg-info/dependency_links.txt
+disscli.egg-info/entry_points.txt
+disscli.egg-info/requires.txt
+disscli.egg-info/top_level.txt
