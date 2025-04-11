@@ -10,6 +10,15 @@ from pathlib import Path
 
 def run_command(command, cwd=None):
     """Run a command and return its output."""
+    # If this is a git command that needs authentication, use the GitHub token
+    if command.startswith('git') and ('push' in command or 'clone' in command):
+        token = get_github_token()
+        # Replace git@ with https://token@ and convert SSH URL format to HTTPS
+        if 'git@github.com:' in command:
+            command = command.replace('git@github.com:', f'https://{token}@github.com/')
+        else:
+            command = command.replace('https://', f'https://{token}@')
+    
     result = subprocess.run(command, shell=True, text=True, capture_output=True, cwd=cwd)
     if result.returncode != 0:
         print(f"Error running command: {command}")
