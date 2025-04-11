@@ -106,10 +106,10 @@ def update_homebrew_formula(version, release_hash):
         formula
     )
     formula = re.sub(
-        r'sha256 "[^"]+"',
-        f'sha256 "{release_hash}"',
+        r'(^  sha256 ")[^"]+"',
+        f'\\1{release_hash}"',
         formula,
-        count=1  # Only replace the first occurrence (main package)
+        flags=re.MULTILINE
     )
     
     # Update PyPI dependencies
@@ -117,14 +117,17 @@ def update_homebrew_formula(version, release_hash):
     for dep in dependencies:
         pkg_info = get_pypi_package_info(dep)
         if pkg_info:
-            # Update version in URL if needed
-            old_url_pattern = f'url "https://files.pythonhosted.org/packages/[^"]+/{dep}-[^"]+"'
-            new_url = f'url "{pkg_info["url"]}"'
-            formula = re.sub(old_url_pattern, new_url, formula)
-            
-            # Update SHA256
-            sha_pattern = f'sha256 "[^"]+"'
-            formula = re.sub(sha_pattern, f'sha256 "{pkg_info["sha256"]}"', formula)
+            # Find the resource block for this dependency
+            resource_pattern = f'  resource "{dep}" do\n.*?  end'
+            resource_block = re.search(resource_pattern, formula, re.DOTALL)
+            if resource_block:
+                old_block = resource_block.group(0)
+                # Create new block with updated URL and hash
+                new_block = f'''  resource "{dep}" do
+    url "{pkg_info["url"]}"
+    sha256 "{pkg_info["sha256"]}"
+  end'''
+                formula = formula.replace(old_block, new_block)
     
     formula_path.write_text(formula)
     return tap_dir
