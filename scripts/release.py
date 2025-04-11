@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -84,6 +85,40 @@ def update_homebrew_formula(version, release_hash):
     formula_path.write_text(formula)
     return tap_dir
 
+def create_github_release(version, bump_type):
+    """Create a GitHub release for the version."""
+    # Get the commits since the last tag
+    last_tag = run_command("git describe --tags --abbrev=0 || echo ''")
+    if last_tag:
+        commits = run_command(f"git log {last_tag}..HEAD --pretty=format:'- %s'")
+    else:
+        commits = run_command("git log --pretty=format:'- %s'")
+
+    # Create release notes
+    notes = f"""Release version {version}
+
+Changes in this release:
+{commits}
+"""
+
+    # Create the release using GitHub CLI if available
+    if subprocess.run("which gh", shell=True, capture_output=True).returncode == 0:
+        release_cmd = f"""gh release create v{version} \
+            --title "Version {version}" \
+            --notes "{notes}" \
+            --generate-notes"""
+        run_command(release_cmd)
+    else:
+        print(f"""
+Note: GitHub CLI (gh) not found. To create the release manually:
+1. Go to https://github.com/Trevogre/discordcli/releases
+2. Click 'Draft a new release'
+3. Choose the tag v{version}
+4. Add these release notes:
+
+{notes}
+""")
+
 def main():
     parser = argparse.ArgumentParser(description="Release a new version of discordcli")
     parser.add_argument('bump_type', choices=['major', 'minor', 'patch'],
@@ -116,6 +151,9 @@ def main():
     print("Waiting for GitHub to process the release...")
     run_command('sleep 5')  # Give GitHub a moment to process the tag
 
+    # Create GitHub release
+    create_github_release(new_version, args.bump_type)
+
     # Get release hash and update Homebrew formula
     release_hash = get_release_hash(new_version)
     tap_dir = update_homebrew_formula(new_version, release_hash)
@@ -127,12 +165,7 @@ def main():
 
     print(f"""
 Release {new_version} completed successfully!
-Next steps:
-1. Go to https://github.com/Trevogre/discordcli/releases
-2. Click 'Draft a new release'
-3. Choose the tag v{new_version}
-4. Add release notes
-5. Publish the release
+The release has been created on GitHub and the Homebrew formula has been updated.
 """)
 
 if __name__ == "__main__":
