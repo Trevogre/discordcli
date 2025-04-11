@@ -3,75 +3,49 @@
 A command-line interface (CLI) tool for sending messages to Discord group channel webhooks. This tool allows you to manage webhooks, send messages, and maintain a history of sent messages.
 
 ## Features
-- Add and manage Discord webhooks.
-- Send messages to Discord channels via webhooks.
-- Maintain a history of sent messages.
-- List users mentioned in messages.
-
-## Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/discordcli.git
-   cd discordcli
-   ```
-2. Install the required dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Initialize the database:
-   ```bash
-   python -m disscli.main
-   ```
+- Add, manage, and delete Discord webhooks
+- Send messages to Discord channels via webhooks
+- Maintain a history of sent messages with ability to clear history
+- List users mentioned in messages
+- Command aliases for frequently used commands
+- Configuration import/export
 
 ## Usage
 Run the CLI tool using the `diss` command. Below are some examples of available commands:
 
 ### Send a Message
 ```bash
-python -m disscli.main "Your message here"
+diss "Your message here"
 ```
 
-### Add a Webhook
+### Webhook Management
 ```bash
-python -m disscli.main addhook "<webhook_url>" "<name>"
+diss addhook "<webhook_url>" "<name>"    # Add a new webhook
+diss deletehook "<name>" (or dh)         # Delete a webhook
+diss listhooks (or lh)                   # List all webhooks
+diss hook "<name>"                       # Set default webhook
+diss whathook (or wh)                    # Show current webhook
 ```
 
-### List Webhooks
+### Message History
 ```bash
-python -m disscli.main listhooks
+diss list (or ls)                        # List sent messages
+diss deletelogs (or dl)                  # Delete all message logs
+diss users                               # List mentioned users
 ```
 
-### Set Default Webhook
+### User Settings
 ```bash
-python -m disscli.main hook "<name>"
+diss setuser "<username>" (or su)        # Set a custom username
+diss whoami (or who)                     # Show current username
 ```
 
-### List Sent Messages
+### Configuration
 ```bash
-python -m disscli.main list
+diss exportconfig [file_path]            # Export configuration
+diss importconfig [file_path]            # Import configuration
 ```
-
-### Set a Custom Username
-```bash
-python -m disscli.main setuser "<username>"
-```
-
-### Show Current Username
-```bash
-python -m disscli.main whoami
-```
-
-### Export Configuration
-```bash
-python -m disscli.main exportconfig <file_path>
-```
-Exports the current configuration to the specified file.
-
-### Import Configuration
-```bash
-python -m disscli.main importconfig <file_path>
-```
-Imports configuration from the specified file.
+The file path defaults to ~/dissconfig.json if not specified.
 
 ## Configuration
 The tool uses a SQLite database located at `~/.disscli_history.db` to store webhook and message history. Configuration settings, such as the default username, are stored in `~/.dissconfig`.

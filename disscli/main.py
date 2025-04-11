@@ -96,6 +96,41 @@ def add_hook(name, webhook_url):
     print(f"Hook '{name}' added successfully.")
 
 
+def delete_hook(name):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Check if hook exists
+    cursor.execute("SELECT is_default FROM hooks WHERE name = ?", (name,))
+    result = cursor.fetchone()
+    
+    if not result:
+        print(f"Error: No hook found with the name '{name}'.")
+        conn.close()
+        return
+    
+    # If this is the default hook, we need to handle that
+    is_default = result[0]
+    
+    cursor.execute("DELETE FROM hooks WHERE name = ?", (name,))
+    conn.commit()
+    
+    # If we deleted the default hook, try to set a new default
+    if is_default:
+        cursor.execute("SELECT name FROM hooks LIMIT 1")
+        new_default = cursor.fetchone()
+        if new_default:
+            cursor.execute("UPDATE hooks SET is_default = 1 WHERE name = ?", (new_default[0],))
+            conn.commit()
+            print(f"Deleted default hook '{name}'. New default hook set to '{new_default[0]}'.")
+        else:
+            print(f"Deleted default hook '{name}'. No other hooks available to set as default.")
+    else:
+        print(f"Hook '{name}' deleted successfully.")
+    
+    conn.close()
+
+
 def list_hooks():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -174,6 +209,16 @@ def list_messages():
     return rows
 
 
+def delete_logs():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM messages")
+    deleted_count = cursor.rowcount
+    conn.commit()
+    conn.close()
+    print(f"Successfully deleted {deleted_count} message logs.")
+
+
 def send_message(webhook_url, username, avatar_url, message):
     mentions = [word for word in message.split() if word.startswith("@")]
     payload = {
@@ -203,12 +248,19 @@ def whoami():
 
 
 def handle_piped_input():
-    if not sys.stdin.isatty():
-        # Read piped input
-        piped_message = sys.stdin.read().strip()
-        if piped_message:
-            # Format as code block with triple backticks
-            return f"```\n{piped_message}\n```"
+    try:
+        # Check if there's input on stdin
+        if not sys.stdin.isatty():
+            # Read piped input
+            piped_message = sys.stdin.read().strip()
+            if piped_message:
+                # Print the original output to stdout
+                print(piped_message)
+                # Return formatted as code block
+                return f"```\n{piped_message}\n```"
+    except (IOError, BrokenPipeError):
+        # Silently handle pipe errors
+        sys.stderr.close()
     return None
 
 
@@ -237,7 +289,7 @@ def main():
     import sys
 
     # Define known subcommands
-    known_subcommands = ["addhook", "listhooks", "hook", "whathook", "users", "list", "setuser", "whoami", "exportconfig", "importconfig"]
+    known_subcommands = ["addhook", "listhooks", "hook", "whathook", "users", "list", "setuser", "whoami", "exportconfig", "importconfig", "deletehook", "deletelogs"]
     
     # Define aliases for subcommands
     command_aliases = {
@@ -245,7 +297,9 @@ def main():
         "lh": "listhooks",
         "wh": "whathook",
         "su": "setuser",
-        "who": "whoami"
+        "who": "whoami",
+        "dh": "deletehook",
+        "dl": "deletelogs"
     }
     
     # First, check if the first argument is an alias and replace it
@@ -262,6 +316,13 @@ def main():
         addhook_parser = subparsers.add_parser("addhook", help="Add a new webhook")
         addhook_parser.add_argument("webhook", help="The webhook URL")
         addhook_parser.add_argument("name", help="The name of the webhook")
+
+        # Subcommand for deleting a hook
+        deletehook_parser = subparsers.add_parser("deletehook", help="Delete an existing webhook")
+        deletehook_parser.add_argument("name", help="The name of the webhook to delete")
+
+        # Subcommand for deleting logs
+        subparsers.add_parser("deletelogs", help="Delete all message logs")
 
         # Subcommand for listing hooks
         subparsers.add_parser("listhooks", help="List all hooks")
@@ -301,26 +362,31 @@ def main():
     else:
         # If no subcommand is provided, treat all arguments as a potential message
         parser = argparse.ArgumentParser(description="Send messages to Discord via webhooks.")
-        parser.add_argument("message", nargs="*", help="The message to send (must be in quotes)")
+        parser.add_argument("message", nargs="*", help="The message to send")
         
         try:
             args = parser.parse_args()
-            # Only process as message if arguments were provided
-            if args.message:
+            # Check for piped input first
+            piped_message = handle_piped_input()
+            if piped_message:
+                args.message = piped_message
+            elif args.message:
                 args.message = " ".join(args.message)
             else:
                 args.message = None
                 print("Error: No message provided or invalid command.")
                 print("\nAvailable commands:")
                 print("  diss \"<message>\" - Send a message to Discord.")
-                print("  diss list - List previously sent messages.")
+                print("  diss list (ls) - List previously sent messages.")
                 print("  diss addhook \"<webhook>\" \"<name>\" - Add a new webhook.")
-                print("  diss listhooks - List all hooks.")
+                print("  diss deletehook <name> (dh) - Delete an existing webhook.")
+                print("  diss deletelogs (dl) - Delete all message logs.")
+                print("  diss listhooks (lh) - List all hooks.")
                 print("  diss hook <name> - Set the current hook.")
-                print("  diss whathook - Show the current hook name.")
+                print("  diss whathook (wh) - Show the current hook name.")
                 print("  diss users - List users that have been messaged.")
-                print("  diss setuser <username> - Set a custom username.")
-                print("  diss whoami - Show the current username.")
+                print("  diss setuser <username> (su) - Set a custom username.")
+                print("  diss whoami (who) - Show the current username.")
                 print("  diss exportconfig [file_path] - Export configuration to the specified file (defaults to ~/dissconfig.json).")
                 print("  diss importconfig [file_path] - Import configuration from the specified file (defaults to ~/dissconfig.json).")
                 return
@@ -333,12 +399,6 @@ def main():
             print("Error: Messages must be wrapped in quotes.")
             print('Example: diss "your message here"')
             return
-
-    # Check for piped input before processing other arguments
-    piped_message = handle_piped_input()
-    if piped_message:
-        args.message = piped_message
-        args.command = None
 
     config = load_config()
 
@@ -390,6 +450,14 @@ def main():
         import_config(args.file_path)
         return
 
+    if args.command == "deletehook":
+        delete_hook(args.name)
+        return
+
+    if args.command == "deletelogs":
+        delete_logs()
+        return
+
     if args.message:
         # Default behavior: send a message
         webhook_url = get_hook_url(get_default_hook())
@@ -405,17 +473,37 @@ def main():
         send_message(webhook_url, username, avatar_url, args.message)
         return
 
+    if args.message is None:
+        print("Error: No message provided or invalid command.")
+        print("\nAvailable commands:")
+        print("  diss \"<message>\" - Send a message to Discord.")
+        print("  diss list (ls) - List previously sent messages.")
+        print("  diss addhook \"<webhook>\" \"<name>\" - Add a new webhook.")
+        print("  diss deletehook <name> (dh) - Delete an existing webhook.")
+        print("  diss deletelogs (dl) - Delete all message logs.")
+        print("  diss listhooks (lh) - List all hooks.")
+        print("  diss hook <name> - Set the current hook.")
+        print("  diss whathook (wh) - Show the current hook name.")
+        print("  diss users - List users that have been messaged.")
+        print("  diss setuser <username> (su) - Set a custom username.")
+        print("  diss whoami (who) - Show the current username.")
+        print("  diss exportconfig [file_path] - Export configuration to the specified file (defaults to ~/dissconfig.json).")
+        print("  diss importconfig [file_path] - Import configuration from the specified file (defaults to ~/dissconfig.json).")
+        return
+
     print("Error: No message provided or invalid command.")
     print("\nAvailable commands:")
     print("  diss \"<message>\" - Send a message to Discord.")
-    print("  diss list - List previously sent messages.")
+    print("  diss list (ls) - List previously sent messages.")
     print("  diss addhook \"<webhook>\" \"<name>\" - Add a new webhook.")
-    print("  diss listhooks - List all hooks.")
+    print("  diss deletehook <name> (dh) - Delete an existing webhook.")
+    print("  diss deletelogs (dl) - Delete all message logs.")
+    print("  diss listhooks (lh) - List all hooks.")
     print("  diss hook <name> - Set the current hook.")
-    print("  diss whathook - Show the current hook name.")
+    print("  diss whathook (wh) - Show the current hook name.")
     print("  diss users - List users that have been messaged.")
-    print("  diss setuser <username> - Set a custom username.")
-    print("  diss whoami - Show the current username.")
+    print("  diss setuser <username> (su) - Set a custom username.")
+    print("  diss whoami (who) - Show the current username.")
     print("  diss exportconfig [file_path] - Export configuration to the specified file (defaults to ~/dissconfig.json).")
     print("  diss importconfig [file_path] - Import configuration from the specified file (defaults to ~/dissconfig.json).")
     return
