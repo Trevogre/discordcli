@@ -212,12 +212,32 @@ def handle_piped_input():
     return None
 
 
+def export_config(file_path):
+    config = load_config()
+    try:
+        with open(file_path, "w") as f:
+            json.dump(config, f, indent=4)
+        print(f"Configuration exported to '{file_path}'.")
+    except Exception as e:
+        print(f"Error exporting configuration: {e}")
+
+
+def import_config(file_path):
+    try:
+        with open(file_path, "r") as f:
+            config = json.load(f)
+        save_config(config)
+        print(f"Configuration imported from '{file_path}'.")
+    except Exception as e:
+        print(f"Error importing configuration: {e}")
+
+
 def main():
     # First check if we're dealing with a subcommand or a message
     import sys
 
     # Define known subcommands
-    known_subcommands = ["addhook", "listhooks", "hook", "whathook", "users", "list", "setuser", "whoami"]
+    known_subcommands = ["addhook", "listhooks", "hook", "whathook", "users", "list", "setuser", "whoami", "exportconfig", "importconfig"]
     
     # Define aliases for subcommands
     command_aliases = {
@@ -266,17 +286,53 @@ def main():
         # Subcommand for showing the current username
         subparsers.add_parser("whoami", help="Show the current username")
 
+        # Subcommand for exporting configuration
+        exportconfig_parser = subparsers.add_parser("exportconfig", help="Export configuration to a file")
+        exportconfig_parser.add_argument("file_path", nargs="?", default=os.path.expanduser("~/dissconfig.json"), 
+                                       help="The file path to export the configuration to (defaults to ~/dissconfig.json)")
+
+        # Subcommand for importing configuration
+        importconfig_parser = subparsers.add_parser("importconfig", help="Import configuration from a file")
+        importconfig_parser.add_argument("file_path", nargs="?", default=os.path.expanduser("~/dissconfig.json"),
+                                       help="The file path to import the configuration from (defaults to ~/dissconfig.json)")
+
         args = parser.parse_args()
         args.message = None
     else:
-        # If no subcommand is provided, treat all arguments as the message
+        # If no subcommand is provided, treat all arguments as a potential message
         parser = argparse.ArgumentParser(description="Send messages to Discord via webhooks.")
-        parser.add_argument("message", nargs="*", help="The message to send")
-        args = parser.parse_args()
-
-        # Join all arguments into a single message string
-        args.message = " ".join(args.message) if args.message and len(args.message) > 0 else None
-        args.command = None
+        parser.add_argument("message", nargs="*", help="The message to send (must be in quotes)")
+        
+        try:
+            args = parser.parse_args()
+            # Only process as message if arguments were provided
+            if args.message:
+                args.message = " ".join(args.message)
+            else:
+                args.message = None
+                print("Error: No message provided or invalid command.")
+                print("\nAvailable commands:")
+                print("  diss \"<message>\" - Send a message to Discord.")
+                print("  diss list - List previously sent messages.")
+                print("  diss addhook \"<webhook>\" \"<name>\" - Add a new webhook.")
+                print("  diss listhooks - List all hooks.")
+                print("  diss hook <name> - Set the current hook.")
+                print("  diss whathook - Show the current hook name.")
+                print("  diss users - List users that have been messaged.")
+                print("  diss setuser <username> - Set a custom username.")
+                print("  diss whoami - Show the current username.")
+                print("  diss exportconfig [file_path] - Export configuration to the specified file (defaults to ~/dissconfig.json).")
+                print("  diss importconfig [file_path] - Import configuration from the specified file (defaults to ~/dissconfig.json).")
+                return
+            args.command = None
+        except SystemExit:
+            # This happens when parsing fails
+            args = argparse.Namespace()
+            args.message = None
+            args.command = None
+            print("Error: Messages must be wrapped in quotes.")
+            print('Example: diss "your message here"')
+            return
 
     # Check for piped input before processing other arguments
     piped_message = handle_piped_input()
@@ -326,6 +382,14 @@ def main():
         whoami()
         return
 
+    if args.command == "exportconfig":
+        export_config(args.file_path)
+        return
+
+    if args.command == "importconfig":
+        import_config(args.file_path)
+        return
+
     if args.message:
         # Default behavior: send a message
         webhook_url = get_hook_url(get_default_hook())
@@ -352,6 +416,8 @@ def main():
     print("  diss users - List users that have been messaged.")
     print("  diss setuser <username> - Set a custom username.")
     print("  diss whoami - Show the current username.")
+    print("  diss exportconfig [file_path] - Export configuration to the specified file (defaults to ~/dissconfig.json).")
+    print("  diss importconfig [file_path] - Import configuration from the specified file (defaults to ~/dissconfig.json).")
     return
 
 

@@ -61,6 +61,18 @@ python -m disscli.main setuser "<username>"
 python -m disscli.main whoami
 ```
 
+### Export Configuration
+```bash
+python -m disscli.main exportconfig <file_path>
+```
+Exports the current configuration to the specified file.
+
+### Import Configuration
+```bash
+python -m disscli.main importconfig <file_path>
+```
+Imports configuration from the specified file.
+
 ## Configuration
 The tool uses a SQLite database located at `~/.disscli_history.db` to store webhook and message history. Configuration settings, such as the default username, are stored in `~/.dissconfig`.
 
