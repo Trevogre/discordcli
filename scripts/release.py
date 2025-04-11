@@ -66,12 +66,26 @@ def update_version(current_version, bump_type):
     Path("setup.py").write_text(new_setup_py)
     return new_version
 
-def get_release_hash(version):
-    """Get SHA256 hash of the release tarball."""
-    url = f"https://github.com/Trevogre/discordcli/archive/refs/tags/v{version}.tar.gz"
+def get_package_hash(url):
+    """Get SHA256 hash of a package from its URL."""
     download_cmd = f"curl -sL {url}"
     tarball = subprocess.run(download_cmd, shell=True, capture_output=True).stdout
     return hashlib.sha256(tarball).hexdigest()
+
+def get_pypi_package_info(package_name):
+    """Get the latest version and hash for a PyPI package."""
+    url = f"https://pypi.org/pypi/{package_name}/json"
+    response = subprocess.run(f"curl -sL {url}", shell=True, capture_output=True).stdout
+    data = json.loads(response)
+    latest_version = data["info"]["version"]
+    for url_info in data["urls"]:
+        if url_info["packagetype"] == "sdist":
+            return {
+                "version": latest_version,
+                "url": url_info["url"],
+                "sha256": url_info["digests"]["sha256"]
+            }
+    return None
 
 def update_homebrew_formula(version, release_hash):
     """Update the Homebrew formula with new version and hash."""
@@ -85,19 +99,32 @@ def update_homebrew_formula(version, release_hash):
     formula_path = tap_dir / "Formula/disscli.rb"
     formula = formula_path.read_text()
     
-    # Update version in URL
+    # Update main package version and hash
     formula = re.sub(
         r'url "https://github\.com/Trevogre/discordcli/archive/refs/tags/v[^"]+"',
         f'url "https://github.com/Trevogre/discordcli/archive/refs/tags/v{version}.tar.gz"',
         formula
     )
-    
-    # Update SHA256
     formula = re.sub(
         r'sha256 "[^"]+"',
         f'sha256 "{release_hash}"',
-        formula
+        formula,
+        count=1  # Only replace the first occurrence (main package)
     )
+    
+    # Update PyPI dependencies
+    dependencies = ["certifi", "charset-normalizer", "idna", "requests", "urllib3"]
+    for dep in dependencies:
+        pkg_info = get_pypi_package_info(dep)
+        if pkg_info:
+            # Update version in URL if needed
+            old_url_pattern = f'url "https://files.pythonhosted.org/packages/[^"]+/{dep}-[^"]+"'
+            new_url = f'url "{pkg_info["url"]}"'
+            formula = re.sub(old_url_pattern, new_url, formula)
+            
+            # Update SHA256
+            sha_pattern = f'sha256 "[^"]+"'
+            formula = re.sub(sha_pattern, f'sha256 "{pkg_info["sha256"]}"', formula)
     
     formula_path.write_text(formula)
     return tap_dir
@@ -172,7 +199,7 @@ def main():
     create_github_release(new_version, args.bump_type)
 
     # Get release hash and update Homebrew formula
-    release_hash = get_release_hash(new_version)
+    release_hash = get_package_hash(f"https://github.com/Trevogre/discordcli/archive/refs/tags/v{new_version}.tar.gz")
     tap_dir = update_homebrew_formula(new_version, release_hash)
 
     # Commit and push Homebrew changes
