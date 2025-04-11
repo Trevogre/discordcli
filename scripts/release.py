@@ -51,8 +51,9 @@ def update_version(current_version, bump_type):
 def get_release_hash(version):
     """Get SHA256 hash of the release tarball."""
     url = f"https://github.com/Trevogre/discordcli/archive/refs/tags/v{version}.tar.gz"
-    tarball = run_command(f"curl -L {url}")
-    return hashlib.sha256(tarball.encode()).hexdigest()
+    download_cmd = f"curl -sL {url}"
+    tarball = subprocess.run(download_cmd, shell=True, capture_output=True).stdout
+    return hashlib.sha256(tarball).hexdigest()
 
 def update_homebrew_formula(version, release_hash):
     """Update the Homebrew formula with new version and hash."""
