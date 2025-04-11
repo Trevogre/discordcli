@@ -2,6 +2,19 @@
 
 A command-line interface (CLI) tool for sending messages to Discord group channel webhooks. This tool allows you to manage webhooks, send messages, and maintain a history of sent messages.
 
+## Installation
+
+### Using Homebrew
+```bash
+brew tap Trevogre/tap
+brew install disscli
+```
+
+### Using pip
+```bash
+pip install disscli
+```
+
 ## Features
 - Add, manage, and delete Discord webhooks
 - Send messages to Discord channels via webhooks
